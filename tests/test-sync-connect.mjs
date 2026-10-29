@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import {createSync} from '../cloudflare/public/sync.mjs';
+import {checkPairCode,newPairCode,keysFor,encryptDocument,documentOf} from '../cloudflare/public/sync-core.mjs';
+const listeners={},elements={'#sync-status':{},'#sync-error':{}},timers=[];
+globalThis.document={querySelector:s=>elements[s]||null,addEventListener:(name,fn)=>listeners[name]=fn,hidden:false};globalThis.window={addEventListener(){}};
+globalThis.setTimeout=fn=>{timers.push(fn);return timers.length};globalThis.clearTimeout=()=>{};globalThis.setInterval=()=>{};
+globalThis.FormData=class{constructor(form){this.form=form}get(){return this.form.code}};
+const code=newPairCode(),keys=await keysFor(code),records=new Map();let remote={revision:0,payload:null},puts=0;
+globalThis.fetch=async(url,options={})=>{if(url.endsWith('sync-status'))return Response.json({available:true});if(options.headers.Authorization!=='Bearer '+keys.auth)return Response.json({error:'Yanlış kod'},{status:401});if(options.method==='PUT'){puts++;remote={revision:remote.revision+1,payload:JSON.parse(options.body).payload}}return Response.json(remote)};
+const db={transaction(){const tx={objectStore(){return {get(key){const req={};queueMicrotask(()=>{req.result=records.get(key);req.onsuccess()});return req},put(value,key){records.set(key,value);queueMicrotask(()=>tx.oncomplete())},delete(key){records.delete(key);queueMicrotask(()=>tx.oncomplete())}}}};return tx}};
+let state={videos:[],studio:{rules:[],events:[]},settings:{count:3},history:{},plans:{}};
+const ctx={db:()=>db,state:()=>state,esc:s=>String(s),render(){},toast(){},backup(){},apply:async doc=>{state=doc;return true}};
+const sync=createSync(ctx);await sync.init();
+const input=value=>listeners.input({target:{matches:()=>true,value}});
+input('bad-code');assert(sync.panel().includes('value="bad-code"'));assert.equal(await sync.submit({id:'settings-form'}),true);assert.equal(sync.connected(),false);assert.match(elements['#sync-error'].textContent,/geçersiz/);assert(sync.panel().includes('value="bad-code"'));
+input(code);assert.equal(await sync.submit({id:'settings-form'}),false);assert(sync.connected());assert.equal(records.get('sync').code,code);assert(!sync.panel().includes('sync-connect'));
+await timers.pop()();assert.equal(puts,0,'empty phone must not upload an empty library');assert.match(elements['#sync-status'].textContent,/bilgisayarındaki liste bekleniyor/);
+const doc=documentOf({...state,videos:[{id:'00000000001',notes:'Bilgisayardaki not'}]});remote={revision:1,payload:await encryptDocument(doc,keys.key)};
+await sync.handle({dataset:{sync:'now'}});await timers.pop()();assert.equal(state.videos[0].notes,'Bilgisayardaki not');assert.match(elements['#sync-status'].textContent,/Eşitlendi/);assert.equal(puts,0);
+console.log('PASS sync connection: settings button connects, draft survives render/failure, persistent inline error, empty phone waits without overwriting cloud, later receives computer library.');
+
+
+const note='LaterLab özel eşitleme kodun\n\n'+code+'\n\nAdres: https://example.com';
+assert.equal(checkPairCode(note),code);
+assert.equal(checkPairCode(code.slice(0,19)+'\n '+code.slice(19)),code);
+assert.equal(checkPairCode(code.slice(0,9)+'\u200B'+code.slice(9)),code);
+assert.throws(()=>checkPairCode(code.slice(0,-1)));
+assert.throws(()=>checkPairCode(code+'a'));
+assert.throws(()=>checkPairCode(code+'\n'+code));
+assert.equal((await keysFor(note)).auth,keys.auth);
+await sync.handle({dataset:{sync:'disconnect'}});
+let prevented=false;const target={matches:()=>true,value:''};listeners.paste({target,clipboardData:{getData:()=>note},preventDefault(){prevented=true}});assert(prevented);assert.equal(target.value,code);
+assert.equal(await sync.submit({id:'settings-form'}),false);assert(sync.connected());
+await sync.handle({dataset:{sync:'disconnect'}});
+const fileInput={id:'sync-code-file',files:[{size:note.length,text:async()=>note}],value:'selected'};
+assert.equal(await sync.change(fileInput),true);assert(sync.connected());assert.equal(records.get('sync').code,code);assert.equal(fileInput.value,'');
+console.log('PASS code input: full instruction file, paste normalization, wrapped/invisible whitespace, canonical key derivation, rejects missing/extra/multiple codes, file selection connects.');

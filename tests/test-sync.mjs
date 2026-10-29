@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {newPairCode,keysFor,encryptDocument,decryptDocument,documentOf,mergeDocuments,sameDocument} from '../cloudflare/public/sync-core.mjs';
+import {cleanStudio,reason,selectDaily} from '../cloudflare/public/features.mjs';
+import {normalizeVideo} from '../cloudflare/public/core.mjs';
+import worker,{LibraryStore} from '../cloudflare/sync-worker.mjs';
+const row=(id,extra={})=>normalizeVideo({id:String(id).padStart(11,'0'),title:'How to learn',duration:600,...extra});
+const state={videos:[row(1),row(2)],studio:cleanStudio(),settings:{count:3,budget:60},plans:{},history:{}};
+const code=newPairCode(),keys=await keysFor(code),base=documentOf(state),encrypted=await encryptDocument(base,keys.key);
+assert(!JSON.stringify(encrypted).includes('How to learn'));assert.deepEqual(await decryptDocument(encrypted,keys.key),base);
+await assert.rejects(decryptDocument(encrypted,(await keysFor(newPairCode())).key));
+const local=structuredClone(base),remote=structuredClone(base);local.videos[0].notes='Phone note';remote.videos[1].starred=true;
+let merged=mergeDocuments(base,local,remote);assert.equal(merged.conflicts.length,0);assert.equal(merged.document.videos[0].notes,'Phone note');assert.equal(merged.document.videos[1].starred,true);
+remote.videos[0].notes='Tablet note';merged=mergeDocuments(base,local,remote);assert(merged.conflicts.includes('videos.00000000001.notes'));assert.equal(mergeDocuments(base,local,remote,'remote').document.videos[0].notes,'Tablet note');
+local.studio.events=[{id:'one',type:'minutes',amount:5,day:'2026-09-19',videoId:'00000000001'}];remote.studio.events=[{id:'two',type:'minutes',amount:7,day:'2026-09-19',videoId:'00000000002'}];assert.equal(mergeDocuments(base,local,remote).document.studio.events.length,2);
+const baseline=structuredClone(base);baseline.videos[0].baselineExcluded=true;assert.equal(mergeDocuments(undefined,base,baseline).document.videos[0].baselineExcluded,true);
+const deletionBase=structuredClone(base);deletionBase.studio.rules=[{id:'r1',value:'abc'}];const deleted=structuredClone(deletionBase);deleted.studio.rules=[];assert.equal(mergeDocuments(deletionBase,deleted,deletionBase).document.studio.rules.length,0);
+assert(sameDocument(base,{...base,videos:[...base.videos].reverse()}));
+const excluded=cleanStudio({excludeWatched:true});assert.match(reason(row(4,{progress:100}),excluded),/İzlendi/);assert.equal(reason(row(4,{progress:99}),excluded),'');excluded.exceptions=['00000000004'];assert.match(reason(row(4,{progress:100}),excluded),/İzlendi/);excluded.excludeWatched=false;assert.equal(reason(row(4,{progress:100}),excluded),'');
+// Storage fake provides serialized atomic transactions like Durable Objects.
+const map=new Map();let queue=Promise.resolve();const storage={transaction(fn){const run=queue.then(async()=>{const copy=new Map(map);const result=await fn({get:async k=>copy.get(k),put:async(k,v)=>{assert(JSON.stringify(v).length<128*1024);copy.set(k,v)},delete:async k=>copy.delete(k)});map.clear();for(const [k,v]of copy)map.set(k,v);return result});queue=run.catch(()=>{});return run}};
+const store=new LibraryStore({storage});const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(keys.auth)))].map(n=>n.toString(16).padStart(2,'0')).join('');
+const env={SYNC_AUTH_HASH:hash,LIBRARIES:{idFromName:name=>name,get:()=>store},ASSETS:{fetch:()=>new Response('assets')}};
+const request=(method='GET',body,auth=keys.auth,origin='https://laterlab.test')=>new Request('https://laterlab.test/api/sync',{method,headers:{Authorization:'Bearer '+auth,'Content-Type':'application/json',Origin:origin},body:body?JSON.stringify(body):undefined});
+assert.equal((await worker.fetch(request('GET',null,'a'.repeat(64)),env)).status,401);
+assert.equal((await worker.fetch(request('GET',null,keys.auth,'https://evil.test'),env)).status,403);
+assert.equal((await (await worker.fetch(request(),env)).json()).revision,0);
+let result=await worker.fetch(request('PUT',{expectedRevision:0,payload:encrypted}),env);assert.equal(result.status,200);
+assert.equal((await worker.fetch(request('PUT',{expectedRevision:0,payload:encrypted}),env)).status,409);
+assert.deepEqual(await decryptDocument((await (await worker.fetch(request(),env)).json()).payload,keys.key),base);
+const large={iv:encrypted.iv,ciphertext:'a'.repeat(200000)};assert.equal((await worker.fetch(request('PUT',{expectedRevision:1,payload:large}),env)).status,200);assert(map.size>3);assert.equal((await (await worker.fetch(request(),env)).json()).payload.ciphertext.length,200000);
+const responses=await Promise.all([worker.fetch(request('PUT',{expectedRevision:2,payload:encrypted}),env),worker.fetch(request('PUT',{expectedRevision:2,payload:encrypted}),env)]);assert.deepEqual(responses.map(r=>r.status).sort(),[200,409]);assert.equal(map.size,2);
+console.log('PASS sync: authenticated encryption, wrong keys, owner-only API, origin check, two-device merge, note conflict, independent logs, deletion, permanent baseline, watched exclusions, chunk storage and atomic CAS');
+if(process.argv.includes('--dev')){fs.writeFileSync(new URL('./sync-test-code.txt',import.meta.url),code);fs.writeFileSync(new URL('../cloudflare/.dev.vars',import.meta.url),'SYNC_AUTH_HASH='+hash+'\n');console.log('Wrote local-only development pairing configuration.');}

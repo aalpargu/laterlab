@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "LaterLab · Otomatik Liste",
+  "version": "1.1.3",
+  "description": "Daha Sonra İzle listesini ve izleme konumunu eşitler, günlük izlemeyi sayar ve YouTube videolarının başlangıç hızını ayarlar.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://siradaki.alpargu37.workers.dev/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_title": "LaterLab · Otomatik Liste",
+    "default_icon": "icon.svg"
+  },
+  "icons": {
+    "48": "icon.svg",
+    "96": "icon.svg"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "incognito": "not_allowed",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "laterlab-watch-later@alpargu37.local",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo",
+          "browsingActivity",
+          "websiteContent"
+        ]
+      }
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "playback.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

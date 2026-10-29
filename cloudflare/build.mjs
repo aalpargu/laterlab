@@ -1,0 +1,10 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=path.dirname(fileURLToPath(import.meta.url));
+const files=['index.html','style.css','app.mjs','core.mjs','exporter.mjs','features.mjs','studio.mjs','sync.mjs','sync-core.mjs','content-search.mjs','metadata.mjs','icon.svg'];
+const content={};
+for(const file of files)content['/'+file]=await fs.readFile(path.join(root,'public',file),'utf8');
+const worker=await fs.readFile(path.join(root,'handler.mjs'),'utf8');
+await fs.writeFile(path.join(root,'worker.mjs'),'const files='+JSON.stringify(content)+';\n'+worker);
+console.log('Built worker.mjs with '+files.length+' application files.');

@@ -1,0 +1,13 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {preparePlan,cleanStudio} from '../cloudflare/public/features.mjs';
+import {normalizeVideo} from '../cloudflare/public/core.mjs';
+const source=fs.readFileSync(new URL('../cloudflare/public/app.mjs',import.meta.url),'utf8');
+const saveSource=source.slice(source.indexOf('async function save('),source.indexOf('async function runAction'));
+const makeApp=new Function('preparePlan',`let sync=null,db,state,revision=null,persisted=null,storageError='',renders=0;function render(){renders++};${saveSource};return {save,init(database,value){db=database;state=structuredClone(value);persisted=structuredClone(value);revision=value.revision??null},get state(){return state},get error(){return storageError},get renders(){return renders}}`);
+function database(initial){let disk=structuredClone(initial),failure=false;return {get disk(){return disk},fail(){failure=true},externalChange(){disk.revision='changed-by-other-tab'},transaction(){let aborted=false;const tx={error:null,abort(){aborted=true;queueMicrotask(()=>tx.onabort?.())},objectStore(){return {get(){const request={};queueMicrotask(()=>{request.result=structuredClone(disk);request.onsuccess()});return request},put(value){queueMicrotask(()=>{if(aborted)return;if(failure){tx.error=Error('QuotaExceededError');tx.onabort();return}disk=structuredClone(value);tx.oncomplete()})}}}};return tx}}}
+const initial={videos:[normalizeVideo({id:'abcdefghijk',title:'How to learn',duration:600,notes:'Original'})],studio:cleanStudio(),settings:{count:3,budget:60},plans:{},history:{}};
+const db=database(initial),app=makeApp(preparePlan);app.init(db,initial);app.state.videos[0].notes='Saved';await app.save();assert.equal(db.disk.videos[0].notes,'Saved');assert.equal(typeof db.disk.revision,'string');assert(Object.values(db.disk.plans).flat().includes('abcdefghijk'));
+db.fail();app.state.videos[0].notes='Unsaved';await assert.rejects(app.save(),/QuotaExceededError/);assert.equal(app.state.videos[0].notes,'Saved');assert.equal(db.disk.videos[0].notes,'Saved');assert.equal(app.renders,1);assert.match(app.error,/Quota/);
+const db2=database(initial),one=makeApp(preparePlan),two=makeApp(preparePlan);one.init(db2,initial);two.init(db2,initial);one.state.videos[0].notes='Newer tab';await one.save();two.state.videos[0].notes='Stale tab';await assert.rejects(two.save(),/başka bir sekmede/);assert.equal(db2.disk.videos[0].notes,'Newer tab');assert.equal(two.state.videos[0].notes,'Original');
+console.log('PASS storage: commit completion, persistent plan, quota rollback, visible failure, atomic revision conflict protection');

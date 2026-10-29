@@ -1,0 +1,30 @@
+{
+  "name": "laterlab",
+  "compatibility_date": "2026-09-16",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "workers_dev": true,
+  "preview_urls": false,
+  "main": "sync-worker.mjs",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LIBRARIES",
+        "class_name": "LibraryStore"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-library-sync",
+      "new_sqlite_classes": [
+        "LibraryStore"
+      ]
+    }
+  ]
+}

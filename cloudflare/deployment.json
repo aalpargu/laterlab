@@ -1,0 +1,16 @@
+{
+  "provider": "cloudflare",
+  "account_id": "beefe34643f0c3bfe450870b9e8adb19",
+  "account_email": "alpargu37@gmail.com",
+  "worker_name": "siradaki",
+  "url": "https://siradaki.alpargu37.workers.dev/",
+  "dashboard_url": "https://dash.cloudflare.com/beefe34643f0c3bfe450870b9e8adb19/workers/services/view/siradaki/production",
+  "version_id": "895401e0-1a02-4271-af9e-67171f68d48a",
+  "previous_version_id": "061c6462-62b1-4b8f-8f91-70d49034b99e",
+  "deployment_method": "wrangler_deploy_keep_vars",
+  "asset_count": 12,
+  "access": "public_no_login",
+  "verified": "LaterLab v5.9: 12 exact live assets; sync available; anonymous sync denied; SYNC_AUTH_HASH and YOUTUBE_API_KEY remain encrypted secrets. No production library writes during verification. Live YouTube metadata retrieval awaits the user's first click.",
+  "verified_date": "2026-09-27",
+  "app_name": "LaterLab"
+}
